@@ -45,6 +45,7 @@ download the MobileNet model and labels file:
 
 
 # The script takes an argument specifying where you want to save the model files
+```
 bash download.sh /tmp
 ```
 
