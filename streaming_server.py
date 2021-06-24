@@ -9,6 +9,9 @@ from tflite_runtime.interpreter import Interpreter
 from io import BytesIO
 from PIL import Image, ImageDraw
 import argparse
+import datetime
+import os
+import logging
 
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
@@ -24,8 +27,29 @@ PAGE="""\
 </html>
 """
 
+class ObjClassDetectionHook:
+    def __init__(self, save_folder, detection_classes):
+        '''
+        save_folder which folder to save to
+        detection_classes - an array of class labels that we want to take a picture when detected
+        '''
+        self.save_folder = save_folder
+        self.detection_classes = detection_classes
+    
+    def get_filename(self, class_name):
+        datetime_filename=datetime.datetime.now().isoformat().replace(":","_")
+        return datetime_filename+"_"+class_name+".jpg"
+
+    def process_hook(self, ori_image, json_data):
+        print("Process Hook")
+        for obj in json_data:
+            if obj["class"] in self.detection_classes:
+                print("Person detected")
+                ori_image.save(os.path.join(self.save_folder, self.get_filename(obj["class"])),"jpeg")
+                return
+
 class StreamingOutput(object):
-    def __init__(self,camera, objectDetector):
+    def __init__(self,camera, objectDetector, output_hook=None):
         self.frame = None #Original image
         self.buffer = io.BytesIO()
         self.condition = Condition()
@@ -35,6 +59,7 @@ class StreamingOutput(object):
         self.input_width = 300 #size of image that will go into the Object Detector
         self.input_height = 300
         self.objectDetector = objectDetector
+        self.output_hook = output_hook
     
     def save_image(self):
         '''
@@ -48,15 +73,15 @@ class StreamingOutput(object):
         '''
         Process the object detection and draw the bounding boxes and the labels
         '''
-        pi = self.image.convert('RGB').resize(
-            (self.input_width, self.input_height), Image.ANTIALIAS)
-        r = self.objectDetector.detect(pi)
-        print(r)
+        r = self.objectDetector.detect(self.image)
+        logging.debug(r)
         img_draw = ImageDraw.Draw(self.image)
         for obj in r:
             self.draw_obj(obj, img_draw)
         self.bounded_image = BytesIO()
         self.image.save(self.bounded_image, "jpeg")
+        if self.output_hook is not None:
+            self.output_hook.process_hook(self.image, r)
 
 
     def draw_obj(self, obj, image_draw):
@@ -129,15 +154,24 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
     
 class ObjectDetector:
-    def __init__(self, interpreter, labels):
+    def __init__(self, interpreter, labels, threshold=0.4):
         self.interpreter =  interpreter
         self.labels = labels
+        self.threshold = threshold
+        self.input_width = 300
+        self.input_height = 300
     
     def detect(self, image):
-        results = detect.detect_objects(self.interpreter, image, 0.4)
+        pi = image.convert('RGB').resize(
+            (self.input_width, self.input_height), Image.ANTIALIAS)
+        results = detect.detect_objects(self.interpreter, pi, self.threshold)
         for obj in results:
             obj['class']=labels[obj['class_id']]
         return results
+
+class BlankObjectDetector:
+    def detect(self, image):
+        return []
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -154,18 +188,23 @@ if __name__ == "__main__":
         default=0.4)
     args = parser.parse_args()
 
+    
     labels = detect.load_labels(args.labels)
     interpreter = Interpreter(args.model)
     interpreter.allocate_tensors()
     _, input_height, input_width, _ = interpreter.get_input_details()[0]['shape']
     od = ObjectDetector(interpreter, labels)
+    od.input_width=input_width
+    od.input_height=input_height
+    output_hook = ObjClassDetectionHook("./", ["person"])
     
-    
+    #od = BlankObjectDetector()
+    #output_hook=None
     with picamera.PiCamera(resolution=(CAMERA_WIDTH, CAMERA_HEIGHT), framerate=24) as camera:
         camera.vflip=True
-        output = StreamingOutput(camera, od)
-        output.input_height = input_height
-        output.input_width = input_width
+        output = StreamingOutput(camera, od,output_hook)
+        #output.input_height = input_height
+        #output.input_width = input_width
         camera.start_recording(output, format='mjpeg')
         try:
             address = ('', 8000)
