@@ -33,9 +33,12 @@ class FaceTracker:
         self.servo = servo
         self.center_box_tl = (310,230)
         self.center_box_br = (330,250)
-        self.servo_max = 0.5
+        #These values determine what is the max limit of the servo that it can move
+        #max is 1 and min -1 
+        self.servo_max = 0.5 
         self.servo_min = -0.5
-        self.delta_movement = 0.01
+        #Tweak this value to determine how the servo will move
+        self.delta_movement = 0.005
 
     def get_center_point(self, top_left, bottom_right):
         x,y = top_left
