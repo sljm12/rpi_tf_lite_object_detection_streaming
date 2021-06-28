@@ -33,8 +33,9 @@ class FaceTracker:
         self.servo = servo
         self.center_box_tl = (310,230)
         self.center_box_br = (330,250)
-        self.servo_max = 0.75
-        self.servo_min = -0.75
+        self.servo_max = 0.5
+        self.servo_min = -0.5
+        self.delta_movement = 0.01
 
     def get_center_point(self, top_left, bottom_right):
         x,y = top_left
@@ -51,13 +52,17 @@ class FaceTracker:
     
     def move_servo(self, center_points):
         x,y = center_points
-        print("target ", center_points)
-        if y < self.center_box_br[1]:
+        
+        #if delta_y is minus we need to shift the camera up
+        #if delta_y is + we need to shift the camera down
+        delta_y = self.center_box_br[1] - y
+        print("target ", center_points, "delta_y ",delta_y)
+        if delta_y > 20:
             print("Y less")
-            self.servo.value = self.servo.value - 0.01 # Tilt Camera backwards/go higher
-        elif y >  self.center_box_br[1]:
+            self.servo.value = self.servo.value - self.delta_movement # Tilt Camera backwards/go higher
+        elif delta_y < -20:
             print("Y more")
-            self.servo.value = self.servo.value + 0.01 # Tilt Camera forwards/go lower
+            self.servo.value = self.servo.value + self.delta_movement # Tilt Camera forwards/go lower
 
         self.check_limits() 
 
@@ -73,6 +78,7 @@ class FaceTracker:
             
             if first_face is None:
                 first_face = cp
+                break
         
         if first_face is not None:
             #print("Center point ", cp)
