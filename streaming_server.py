@@ -12,6 +12,9 @@ import argparse
 import datetime
 import os
 import logging
+from pi_face_detect import FaceDetection, FaceTracker
+from gpiozero import Servo
+
 
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
@@ -69,32 +72,6 @@ class StreamingOutput(object):
         self.camera.capture(stream, format="jpeg", use_video_port = True)
         return Image.open(stream)
 
-    def process_od(self):
-        '''
-        Process the object detection and draw the bounding boxes and the labels
-        '''
-        r = self.objectDetector.detect(self.image)
-        logging.debug(r)
-        img_draw = ImageDraw.Draw(self.image)
-        for obj in r:
-            self.draw_obj(obj, img_draw)
-        self.bounded_image = BytesIO()
-        self.image.save(self.bounded_image, "jpeg")
-        if self.output_hook is not None:
-            self.output_hook.process_hook(self.image, r)
-
-
-    def draw_obj(self, obj, image_draw):
-        ymin, xmin, ymax, xmax = obj['bounding_box']
-        xmin = int(xmin * CAMERA_WIDTH)
-        xmax = int(xmax * CAMERA_WIDTH)
-        ymin = int(ymin * CAMERA_HEIGHT)
-        ymax = int(ymax * CAMERA_HEIGHT)
-
-        image_draw.rectangle([(xmin, ymin), (xmax, ymax)], outline=(0,0,0))
-        image_draw.text((xmin,ymin), obj["class"])
-
-
     def write(self, buf):
         if buf.startswith(b'\xff\xd8'):
             # New frame, copy the existing buffer's content and notify all
@@ -105,7 +82,9 @@ class StreamingOutput(object):
                 self.condition.notify_all()
             self.buffer.seek(0)
             self.image = self.save_image()
-            self.process_od()
+            #self.process_od()
+            if self.objectDetector is not None:
+                self.bounded_image = self.objectDetector.detect(self.image)
         return self.buffer.write(buf)
 
 class StreamingHandler(server.BaseHTTPRequestHandler):
@@ -160,18 +139,41 @@ class ObjectDetector:
         self.threshold = threshold
         self.input_width = 300
         self.input_height = 300
+
+    def draw_obj(self, obj, image_draw):
+        ymin, xmin, ymax, xmax = obj['bounding_box']
+        xmin = int(xmin * CAMERA_WIDTH)
+        xmax = int(xmax * CAMERA_WIDTH)
+        ymin = int(ymin * CAMERA_HEIGHT)
+        ymax = int(ymax * CAMERA_HEIGHT)
+
+        image_draw.rectangle([(xmin, ymin), (xmax, ymax)], outline=(0,0,0))
+        image_draw.text((xmin,ymin), obj["class"])
     
     def detect(self, image):
+        '''
+        returns an image with the bounding boxes
+        '''
         pi = image.convert('RGB').resize(
             (self.input_width, self.input_height), Image.ANTIALIAS)
         results = detect.detect_objects(self.interpreter, pi, self.threshold)
         for obj in results:
             obj['class']=labels[obj['class_id']]
-        return results
+
+        img_draw = ImageDraw.Draw(image)
+        for obj in results:
+            self.draw_obj(obj, img_draw)
+        bounded_image = BytesIO()
+        image.save(bounded_image, "jpeg")
+        #if self.output_hook is not None:
+        #    self.output_hook.process_hook(self.image, r)
+        return bounded_image
 
 class BlankObjectDetector:
     def detect(self, image):
-        return []
+        bounded_image = BytesIO()
+        image.save(bounded_image, "jpeg")
+        return bounded_image
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -188,7 +190,7 @@ if __name__ == "__main__":
         default=0.4)
     args = parser.parse_args()
 
-    
+    '''
     labels = detect.load_labels(args.labels)
     interpreter = Interpreter(args.model)
     interpreter.allocate_tensors()
@@ -196,10 +198,16 @@ if __name__ == "__main__":
     od = ObjectDetector(interpreter, labels)
     od.input_width=input_width
     od.input_height=input_height
-    output_hook = ObjClassDetectionHook("./", ["person"])
-    
+    #output_hook = ObjClassDetectionHook("./", ["person"])
+    '''
+
+    #od = FaceDetection()
+    p = Servo(18, min_pulse_width=0.0005, max_pulse_width=0.0025)
+    p.value = 0
+    od = FaceTracker(p)
     #od = BlankObjectDetector()
-    #output_hook=None
+    #od=None
+    output_hook=None
     with picamera.PiCamera(resolution=(CAMERA_WIDTH, CAMERA_HEIGHT), framerate=24) as camera:
         camera.vflip=True
         output = StreamingOutput(camera, od,output_hook)
