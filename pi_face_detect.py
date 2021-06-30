@@ -24,7 +24,7 @@ class FaceDetection:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # Detect faces
         faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-        
+        print("Faces ", len(faces))
         return self.draw_faces(image, faces)
 
 
@@ -38,7 +38,8 @@ class FaceTracker:
         self.servo_max = 0.5 
         self.servo_min = -0.5
         #Tweak this value to determine how the servo will move
-        self.delta_movement = 0.005
+        self.delta_movement = 0.01
+        self.face_tracker_enabled = True
 
     def get_center_point(self, top_left, bottom_right):
         x,y = top_left
@@ -60,10 +61,10 @@ class FaceTracker:
         #if delta_y is + we need to shift the camera down
         delta_y = self.center_box_br[1] - y
         print("target ", center_points, "delta_y ",delta_y)
-        if delta_y > 20:
+        if delta_y > 20: #Means face below the box
             print("Y less")
             self.servo.value = self.servo.value - self.delta_movement # Tilt Camera backwards/go higher
-        elif delta_y < -20:
+        elif delta_y < -20: #Means face above the box
             print("Y more")
             self.servo.value = self.servo.value + self.delta_movement # Tilt Camera forwards/go lower
 
@@ -83,7 +84,7 @@ class FaceTracker:
                 first_face = cp
                 break
         
-        if first_face is not None:
+        if self.face_tracker_enabled and first_face is not None:
             #print("Center point ", cp)
             self.move_servo(first_face)
 
